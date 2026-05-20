@@ -1,243 +1,273 @@
 import "./style.css";
 import * as THREE from "three";
-import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader";
-import { DRACOLoader } from "three/examples/jsm/loaders/DRACOLoader";
-import { Clock } from "three";
+import CustomShaderMaterial from "three-custom-shader-material/vanilla";
 import { GetSceneBounds } from "./utils";
-import { ShaderMaterial } from "three";
-import { GetBackgroundMesh } from "./background";
-import { OrbitControls } from "three/examples/jsm/Addons.js";
-import GUI from "lil-gui";
 
-const { PI } = Math;
 const canvas = document.querySelector("canvas");
-canvas.width = innerWidth;
-canvas.height = innerHeight;
+
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+renderer.setSize(innerWidth, innerHeight);
+renderer.setClearColor(0x080808);
 
 const scene = new THREE.Scene();
-const renderer = new THREE.WebGLRenderer({
-  canvas,
-  antialias: true,
-  alpha: true,
-});
 
-renderer.setClearColor(0x000000);
-
-const camera = new THREE.PerspectiveCamera(
-  70,
-  innerWidth / innerHeight,
-  1,
-  1000,
-);
+const camera = new THREE.PerspectiveCamera(70, innerWidth / innerHeight, 0.1, 1000);
 camera.position.z = 5;
 
-const Manager = new THREE.LoadingManager();
-const Draco = new DRACOLoader(Manager);
-const GLB = new GLTFLoader(Manager);
-const TextureLoader = new THREE.TextureLoader(Manager);
-Draco.setDecoderPath("/draco/");
-Draco.setDecoderConfig({ type: "wasm" });
-GLB.setDRACOLoader(Draco);
+const { width: SceneWidth, height: SceneHeight } = GetSceneBounds(renderer, camera);
 
-const { width: SceneWidth, height: SceneHeight } = GetSceneBounds(
-  renderer,
-  camera,
-);
-
-// const gui = new GUI();
-
+// ─── CONFIG ──────────────────────────────────────────────────────────────────
 const CONFIG = {
-  width: 3.5,
-  height: 2,
-  spacing: 3.5 + 0.5,
-  friction: 0.8,
-  maxVelocity: 24,
+  cardWidthFactor:   0.28,
+  gapFactor:         0.06,
+  cardCount:         6,
+  snapDelay:         120,
+  scrollEase:        0.08,
+  maxScrollVelocity: 0.18,
+  velocityEase:      0.04,
+  expandEase:        0.14,  // how fast expand/collapse lerps (higher = snappier)
+  expandSettleThreshold: 0.002, // how close current→target must be before expand fires
 };
 
-const clampVelocity = (v) =>
-  Math.max(-CONFIG.maxVelocity, Math.min(CONFIG.maxVelocity, v));
+const CARD_W  = SceneWidth  * CONFIG.cardWidthFactor;
+const CARD_H  = (CARD_W * SceneHeight) / SceneWidth;
+const GAP     = SceneWidth  * CONFIG.gapFactor;
+const STRIDE  = CARD_W + GAP;
+const TOTAL_W = STRIDE * CONFIG.cardCount;
 
-const background = GetBackgroundMesh({
-  width: SceneWidth,
-  height: SceneHeight,
-});
-background.material.uniforms.uResolution.value.set(innerWidth, innerHeight);
-background.material.uniforms.maxVelocity.value = CONFIG.maxVelocity;
+const EXPAND_SX = SceneWidth  / CARD_W;
+const EXPAND_SY = SceneHeight / CARD_H;
 
-scene.add(background);
+// ─── CARDS ───────────────────────────────────────────────────────────────────
+const COLORS = [
+  new THREE.Color(0xe63946),
+  new THREE.Color(0x457b9d),
+  new THREE.Color(0x2a9d8f),
+  new THREE.Color(0xe9c46a),
+  new THREE.Color(0xf4a261),
+  new THREE.Color(0x6a4c93),
+];
 
-const Cards = [];
-for (let i = 0; i < 10; i++) {
-  const cardMaterial = new THREE.MeshPhysicalMaterial({
-    color: 0xffffff,
-    roughness: 0,
-    metalness: 0,
-    transmission: .8,
-    thickness: 1,
-    ior: 1.5,
+const cards = [];
+
+for (let i = 0; i < CONFIG.cardCount; i++) {
+  const material = new CustomShaderMaterial({
+    baseMaterial: THREE.MeshBasicMaterial,
+    color: COLORS[i % COLORS.length],
+    uniforms: {
+      uVelocity:       { value: 0 },
+      uScrollVelocity: { value: 0 },
+      uExpand:         { value: 0 }, // 0 = card, 1 = fullscreen
+      uWidth:          { value: SceneWidth / 2 },
+    },
+    vertexShader: /* glsl */ `
+      uniform float uVelocity;
+      uniform float uScrollVelocity;
+      uniform float uExpand;
+      uniform float uWidth;
+
+      varying vec2 vScreenUV;
+
+      void main() {
+        vec3 pos = position;
+
+        // undisplaced clip for screenUV base
+        vec4 clip = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        vec2 screenUV = (clip.xy / clip.w) * 0.5 + 0.5;
+
+        // suppress all displacement while expanded
+        float IsActive = 1.0 - uExpand;
+
+        // bend + Z pushback — both killed as card expands
+        float bend = sin(screenUV.x * PI) * 2.0;
+        pos.z -= bend * uScrollVelocity * 1.5 * IsActive;
+        pos.z -= uScrollVelocity * 1.2 * IsActive;
+
+        // reproject displaced pos for correct vScreenUV
+        vec4 dispClip = projectionMatrix * modelViewMatrix * vec4(pos, 1.0);
+        vScreenUV = (dispClip.xy / dispClip.w) * 0.5 + 0.5;
+
+        csm_Position = pos;
+      }
+    `,
+    fragmentShader: /* glsl */ `
+      uniform float uVelocity;
+      uniform float uScrollVelocity;
+      uniform float uExpand;
+
+      varying vec2 vScreenUV;
+
+      void main() {
+        csm_FragColor = vec4(vScreenUV, 0.0, 1.0);
+      }
+    `,
   });
 
-  cardMaterial.uniforms = {
-    uVelocity: { value: 0 },
-    uPositionX: { value: 0 },
-    maxVelocity: { value: CONFIG.maxVelocity },
-  };
-
-  cardMaterial.onBeforeCompile = (shader) => {
-    shader.uniforms.uVelocity = cardMaterial.uniforms.uVelocity;
-    shader.uniforms.maxVelocity = cardMaterial.uniforms.maxVelocity;
-    shader.uniforms.uPositionX = cardMaterial.uniforms.uPositionX;
-
-    shader.vertexShader = shader.vertexShader.replace(
-      `#include <common>`,
-      `#include <common>
-      uniform float uVelocity;
-      uniform float maxVelocity;
-      uniform float uPositionX;`,
-    );
-
-    shader.vertexShader = shader.vertexShader.replace(
-      `#include <project_vertex>`,
-      `#include <project_vertex>
-
-      float velocityProg = uVelocity / maxVelocity;
-      float worldX = uPositionX + transformed.x;
-      float dist = abs(worldX);
-      float warpStrength = 1.0 - smoothstep(0.0, 5.0, dist);
-      warpStrength = warpStrength * warpStrength;
-      transformed.x += sin(uv.y * PI) * velocityProg;
-      transformed.z += warpStrength * 2.5 * abs(velocityProg);
-      gl_Position = projectionMatrix * modelViewMatrix * vec4(transformed, 1.0);`,
-    );
-
-    cardMaterial.userData.shader = shader;
-  };
-
-  const card = new THREE.Mesh(
-    // new THREE.BoxGeometry(CONFIG.width, CONFIG.height, 0.1, 100, 100, 100),
-    new THREE.PlaneGeometry(CONFIG.width, CONFIG.height, 100, 100),
-    cardMaterial,
+  const mesh = new THREE.Mesh(
+    new THREE.PlaneGeometry(CARD_W, CARD_H, 40, 1),
+    material,
   );
 
-  Cards.push(card);
-  scene.add(card);
+  mesh.position.x = i * STRIDE;
+  // store per-card expand state directly on the mesh
+  mesh.userData.expandProgress = 0;
+  mesh.userData.expandTarget   = 0;
+
+  scene.add(mesh);
+  cards.push(mesh);
 }
 
-// new OrbitControls(camera,canvas)
-
-// --- Scroll state ---
-let offset = 0;
-let velocity = 0;
-
-// --- Drag state ---
-const drag = {
-  active: false,
-  lastX: 0,
-  lastTime: 0,
-  rawVelocity: 0,
+// ─── SCROLL STATE ─────────────────────────────────────────────────────────────
+const scroll = {
+  current: 0,
+  target:  0,
+  prev:    0,
+  ease:    CONFIG.scrollEase,
 };
 
-function onPointerDown(e) {
-  drag.active = true;
-  const clientX = e.clientX ?? e.touches?.[0].clientX;
-  drag.lastX = clientX;
-  drag.lastTime = performance.now();
-  drag.rawVelocity = 0;
-  velocity = 0;
+let rawInputDelta  = 0;
+let velocity       = 0;
+let scrollVelocity = 0;
+
+// ─── EXPAND STATE ─────────────────────────────────────────────────────────────
+let expandedIndex    = -1;   // which card is currently expanding/expanded
+let isExpanded       = false; // blocks scroll input when true
+let pendingExpandIdx = -1;   // set after snap, fires once scroll settles
+
+// ─── SCROLL INPUT ─────────────────────────────────────────────────────────────
+let isPointerDown = false;
+let lastDragX     = 0;
+
+function triggerCollapse() {
+  if (!isExpanded) return;
+  isExpanded       = false;
+  expandedIndex    = -1;
+  pendingExpandIdx = -1;
 }
 
-function onPointerMove(e) {
-  if (!drag.active) return;
-  const clientX = e.clientX ?? e.touches?.[0].clientX;
-  const now = performance.now();
-  const dt = (now - drag.lastTime) / 1000;
-
-  const dxPx = drag.lastX - clientX;
-  const dxWorld = (dxPx / innerWidth) * SceneWidth;
-
-  offset += dxWorld;
-  if (dt > 0) drag.rawVelocity = (dxWorld / dt) * 10;
-
-  drag.lastX = clientX;
-  drag.lastTime = now;
-}
-
-function onPointerUp() {
-  if (!drag.active) return;
-  drag.active = false;
-  velocity = clampVelocity(drag.rawVelocity);
-}
-
-canvas.addEventListener("mousedown", onPointerDown);
-canvas.addEventListener("mousemove", onPointerMove);
-canvas.addEventListener("mouseup", onPointerUp);
-canvas.addEventListener("mouseleave", onPointerUp);
-canvas.addEventListener("touchstart", (e) => onPointerDown(e.touches[0]), {
-  passive: true,
-});
-canvas.addEventListener("touchmove", (e) => onPointerMove(e.touches[0]), {
-  passive: true,
-});
-canvas.addEventListener("touchend", onPointerUp);
-canvas.addEventListener(
-  "wheel",
-  (e) => {
-    e.preventDefault();
-    velocity += (e.deltaY / innerHeight) * SceneWidth * 2;
-    velocity = clampVelocity(velocity);
-  },
-  { passive: true },
-);
-
-// --- Animation loop ---
-const clock = new Clock();
-let PrevTime = clock.getElapsedTime();
-
-function Animate() {
-  const CurrentTime = clock.getElapsedTime();
-  const DT = CurrentTime - PrevTime;
-  PrevTime = CurrentTime;
-
-  if (!drag.active) {
-    velocity *= CONFIG.friction;
-    offset += velocity * DT;
+window.addEventListener("wheel", (e) => {
+  if (isExpanded) {
+    triggerCollapse();
+    return; // eat this event, next wheel starts scrolling
   }
+  const delta = e.deltaY * 0.003;
+  scroll.target += delta;
+  rawInputDelta += Math.abs(delta);
+}, { passive: true });
 
-  if (background) {
-    background.material.uniforms.uTime.value = CurrentTime;
-    background.material.uniforms.uVelocity.value +=
-      (velocity - background.material.uniforms.uVelocity.value) * 0.08;
-  }
+let drag = { active: false, startX: 0, startScroll: 0 };
 
-  const totalWidth = Cards.length * CONFIG.spacing;
-  const edge = SceneWidth / 2 + CONFIG.width / 2;
+window.addEventListener("pointerdown", (e) => {
+  isPointerDown    = true;
+  drag.active      = true;
+  drag.startX      = e.clientX;
+  drag.startScroll = scroll.target;
+  lastDragX        = e.clientX;
+  if (isExpanded) triggerCollapse();
+});
+window.addEventListener("pointermove", (e) => {
+  if (!drag.active || isExpanded) return;
+  const dx = (e.clientX - drag.startX) / innerWidth;
+  scroll.target = drag.startScroll - dx * SceneWidth * 1.4;
+  rawInputDelta += Math.abs(e.clientX - lastDragX) / innerWidth * SceneWidth * 1.4 * 0.003;
+  lastDragX = e.clientX;
+});
+window.addEventListener("pointerup",    () => { isPointerDown = false; drag.active = false; });
+window.addEventListener("pointerleave", () => { isPointerDown = false; drag.active = false; });
 
-  Cards.forEach((card, i) => {
-    let x = (i * CONFIG.spacing - offset) % totalWidth;
-    if (x < -edge - CONFIG.width) x += totalWidth;
-    if (x > edge + CONFIG.width) x -= totalWidth;
-    card.position.x = x;
-    const shader = card.material.userData.shader;
-    if (shader) {
-      shader.uniforms.uVelocity.value +=
-        (velocity - shader.uniforms.uVelocity.value) * 0.08;
-      shader.uniforms.uPositionX.value = x;
+// ─── SNAP ─────────────────────────────────────────────────────────────────────
+let lastTarget = 0;
+let restTimer  = null;
+
+function scheduleSnap() {
+  clearTimeout(restTimer);
+  restTimer = setTimeout(() => {
+    if (isPointerDown || isExpanded) return;
+
+    const snapped = Math.round(scroll.target / STRIDE) * STRIDE;
+    scroll.target = snapped;
+
+    // which card index lands at centre after snap — queue it, don't expand yet
+    const idx = ((Math.round(snapped / STRIDE) % CONFIG.cardCount) + CONFIG.cardCount) % CONFIG.cardCount;
+    pendingExpandIdx = idx;
+  }, CONFIG.snapDelay);
+}
+
+// ─── LAYOUT — returns raw x for each card ─────────────────────────────────────
+function getLayoutX(i, offset) {
+  let x = i * STRIDE - offset;
+  x = ((x + TOTAL_W * 0.5) % TOTAL_W + TOTAL_W) % TOTAL_W - TOTAL_W * 0.5;
+  return x;
+}
+
+// ─── ANIMATE ──────────────────────────────────────────────────────────────────
+function animate() {
+  requestAnimationFrame(animate);
+
+  // scroll
+  if (!isExpanded) {
+    if (scroll.target !== lastTarget) {
+      lastTarget = scroll.target;
+      scheduleSnap();
     }
-  });
+    scroll.current += (scroll.target - scroll.current) * scroll.ease;
+  }
+
+  // fire expand once scroll has fully settled after snap
+  if (pendingExpandIdx !== -1 && !isExpanded) {
+    const diff = Math.abs(scroll.target - scroll.current);
+    if (diff < CONFIG.expandSettleThreshold) {
+      expandedIndex    = pendingExpandIdx;
+      isExpanded       = true;
+      pendingExpandIdx = -1;
+    }
+  }
+
+  velocity       = scroll.current - scroll.prev;
+  scroll.prev    = scroll.current;
+
+  const rawNorm   = THREE.MathUtils.clamp(rawInputDelta / CONFIG.maxScrollVelocity, 0, 1);
+  scrollVelocity += (rawNorm - scrollVelocity) * CONFIG.velocityEase;
+  rawInputDelta   = 0;
+
+  // per-card
+  for (let i = 0; i < CONFIG.cardCount; i++) {
+    const mesh = cards[i];
+    const mat  = mesh.material;
+    const isActive = isExpanded && expandedIndex === i;
+
+    // expand target
+    mesh.userData.expandTarget   = isActive ? 1 : 0;
+    mesh.userData.expandProgress = THREE.MathUtils.lerp(
+      mesh.userData.expandProgress,
+      mesh.userData.expandTarget,
+      CONFIG.expandEase,
+    );
+
+    const ep      = mesh.userData.expandProgress;
+    const layoutX = getLayoutX(i, scroll.current);
+
+    // position: blend between carousel layout and locked centre
+    mesh.position.x = THREE.MathUtils.lerp(layoutX, 0, ep);
+    mesh.position.z = THREE.MathUtils.lerp(0, 0.05, ep);
+
+    // scale: card → fullscreen
+    mesh.scale.x = THREE.MathUtils.lerp(1, EXPAND_SX, ep);
+    mesh.scale.y = THREE.MathUtils.lerp(1, EXPAND_SY, ep);
+
+    // uniforms
+    mat.uniforms.uVelocity.value       = velocity;
+    mat.uniforms.uScrollVelocity.value = scrollVelocity;
+    mat.uniforms.uExpand.value         = ep;
+  }
 
   renderer.render(scene, camera);
-  requestAnimationFrame(Animate);
 }
+animate();
 
-requestAnimationFrame(Animate);
-
-// --- Resize ---
-function resize() {
+// ─── RESIZE ───────────────────────────────────────────────────────────────────
+window.addEventListener("resize", () => {
   camera.aspect = innerWidth / innerHeight;
   camera.updateProjectionMatrix();
-  canvas.width = innerWidth;
-  canvas.height = innerHeight;
   renderer.setSize(innerWidth, innerHeight);
-}
-
-window.addEventListener("resize", resize);
+});
