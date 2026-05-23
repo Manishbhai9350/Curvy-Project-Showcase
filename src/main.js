@@ -9,6 +9,7 @@ import { buildUI, transitionTo, killCurrentContent, runLoader, firstAnimateIn, P
 import { TextureLoader } from "three";
 import edgeWarpVert from "./shaders/edge-warp/vertex.glsl";
 import edgeWarpFrag from "./shaders/edge-warp/fragment.glsl";
+import { Vector2 } from "three";
 
 buildUI();
 
@@ -33,7 +34,7 @@ const CONFIG = {
   cardCount:                11,
   snapDelay:                60,
   scrollEase:               0.08,
-  maxScrollVelocity:        0.18,
+  maxScrollVelocity:        0.2,
   velocityEase:             0.04,
   expandEase:               0.14,
   expandSettleThreshold:    0.002,
@@ -56,6 +57,8 @@ const EdgeWarpShader = {
     uAmount:  { value: 0.0 },
     uTime:    { value: 0.0 },
     uActive:    { value: 1.0 },
+    uMouse:    { value: new Vector2(.5,.5) },
+    uResolution:    { value: new Vector2(innerWidth,innerHeight) },
   },
   vertexShader:   edgeWarpVert,
   fragmentShader: edgeWarpFrag,
@@ -149,9 +152,9 @@ for (let i = 0; i < CONFIG.cardCount; i++) {
     uPlaneSize:      { value: new THREE.Vector2(CARD_W, CARD_H) },
   };
 
-  console.log((i) % 11 + 1)
+  const { image2 } = PROJECTS[i];
 
-  TLoader.load(`/images/${(i) % 11 + 1}.jpg`, (txt) => {
+  TLoader.load(image2, (txt) => {
     txt.colorSpace = THREE.SRGBColorSpace;
     uniforms.uImageSize.value.set(txt.image.width, txt.image.height);
     uniforms.uMap.value = txt;
@@ -179,8 +182,8 @@ for (let i = 0; i < CONFIG.cardCount; i++) {
 
         float IsActive = 1.0 - uExpand;
 
-        float bend = sin(screenUV.x * PI) * 2.0;
-        pos.z -= bend * uScrollVelocity * 7.0 * IsActive;
+        float bend = sin(screenUV.x * PI);
+        pos.z -= bend * pow(uScrollVelocity,.5 + IsActive * .5) * 5.0 * IsActive;
         pos.z -= uScrollVelocity * 1.2 * IsActive;
 
         vec4 dispClip = projectionMatrix * modelViewMatrix * vec4(pos, 1.0);
@@ -193,6 +196,7 @@ for (let i = 0; i < CONFIG.cardCount; i++) {
       uniform sampler2D uMap;
       uniform vec2 uImageSize;
       uniform vec2 uPlaneSize;
+      uniform float uScrollVelocity;
 
       varying vec2 vUv;
 
@@ -217,6 +221,7 @@ for (let i = 0; i < CONFIG.cardCount; i++) {
       void main() {
         vec2 uv = getCenteredCoverUV(vUv, uImageSize, uPlaneSize);
         csm_FragColor = texture2D(uMap, uv);
+        // csm_FragColor = vec4(abs(uScrollVelocity),0.0,0.0,1.0);
       }
     `,
   });
@@ -354,6 +359,11 @@ function getLayoutX(i, offset) {
 // ─── ANIMATE ──────────────────────────────────────────────────────────────────
 let clock = new THREE.Clock();
 
+const targetMouse = {
+  x:0,
+  y:0
+}
+
 function animate() {
   requestAnimationFrame(animate);
 
@@ -398,6 +408,7 @@ function animate() {
   rgbPass.uniforms.uAmount.value  = smoothRGB;
   rgbPass.uniforms.uTime.value    = elapsed;
   rgbPass.uniforms.uActive.value  = smoothActive;
+  rgbPass.uniforms.uMouse.value.lerp(targetMouse,.2)
 
   for (let i = 0; i < CONFIG.cardCount; i++) {
     const mesh     = cards[i];
@@ -420,7 +431,7 @@ function animate() {
     mesh.scale.y    = THREE.MathUtils.lerp(1, EXPAND_SY, ep);
 
     mat.uniforms.uVelocity.value       = velocity;
-    mat.uniforms.uScrollVelocity.value = scrollVelocity;
+    mat.uniforms.uScrollVelocity.value = scrollVelocity / CONFIG.maxScrollVelocity;
     mat.uniforms.uExpand.value         = ep;
   }
 
@@ -445,3 +456,11 @@ window.addEventListener("resize", () => {
     window.location.reload();
   }, 250);
 });
+
+window.addEventListener('mousemove',e => {
+  const x = e.clientX;
+  const y = e.clientY;
+
+  targetMouse.x = x / innerWidth;
+  targetMouse.y = 1 -  y / innerHeight;
+})

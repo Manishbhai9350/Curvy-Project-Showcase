@@ -1,7 +1,11 @@
 uniform sampler2D tDiffuse;
-uniform float     uAmount; // 0 idle → 1 full scroll
+uniform float     uAmount;
 uniform float     uTime;
 uniform float     uActive;
+uniform vec2      uMouse;      // smoothed mouse in UV space (0→1, Y flipped)
+uniform vec2      uResolution;
+uniform float     uScrollVelocity;
+
 
 varying vec2 vUv;
 
@@ -17,9 +21,9 @@ float snoise(vec2 v) {
   );
   vec2 i  = floor(v + dot(v, C.yy));
   vec2 x0 = v - i + dot(i, C.xx);
-  vec2 i1  = (x0.x > x0.y) ? vec2(1.0, 0.0) : vec2(0.0, 1.0);
+  vec2 i1 = (x0.x > x0.y) ? vec2(1.0, 0.0) : vec2(0.0, 1.0);
   vec4 x12 = x0.xyxy + C.xxzz;
-  x12.xy  -= i1;
+  x12.xy -= i1;
   i = mod(i, 289.0);
   vec3 p = permute(permute(i.y + vec3(0.0, i1.y, 1.0))
                          + i.x + vec3(0.0, i1.x, 1.0));
@@ -31,12 +35,11 @@ float snoise(vec2 v) {
   vec3 a0 = x - ox;
   m *= 1.79284291400159 - 0.85373472095314 * (a0*a0 + h*h);
   vec3 g;
-  g.x  = a0.x  * x0.x   + h.x  * x0.y;
-  g.yz = a0.yz * x12.xz  + h.yz * x12.yw;
+  g.x  = a0.x  * x0.x  + h.x  * x0.y;
+  g.yz = a0.yz * x12.xz + h.yz * x12.yw;
   return 130.0 * dot(m, g);
 }
 
-// ── layered simplex fbm ───────────────────────────────────────────────────────
 float fbm(vec2 p) {
   float v = 0.0;
   float a = 0.5;
@@ -45,54 +48,62 @@ float fbm(vec2 p) {
     p  = p * 2.1 + vec2(1.7, 9.2);
     a *= 0.5;
   }
-  return v;  // range ≈ -1 → +1
+  return v;
 }
 
 void main() {
   float t = uTime * 0.2;
+  float ar = uResolution.x / uResolution.y; // aspect ratio for correct distance
 
-  // ── X-band mask: active only in [0, 0.2] and [0.8, 1.0] ─────────────────
-  // map each band to 0→1 then smooth
-  float leftBand  = 1.0 - smoothstep(0.0, 0.4, vUv.x);   // 1 at x=0, 0 at x=0.2
-  float rightBand = smoothstep(0.6, 1.0, vUv.x);          // 0 at x=0.8, 1 at x=1.0
-  float xMask = max(leftBand, rightBand);
-  xMask = pow(xMask, 3.0) * 3.0; // sharpen slightly
+  // ── edge warp (existing) ──────────────────────────────────────────────────
+  float leftBand  = 1.0 - smoothstep(0.0, 0.4, vUv.x);
+  float rightBand = smoothstep(0.6, 1.0, vUv.x);
+  float xMask     = max(leftBand, rightBand);
+  float mask      = pow(xMask, 3.0) * 3.0;
 
-  // ── Y-mask: grows toward top and bottom edges ─────────────────────────────
-  // float ey    = abs(vUv.y - 0.5) * 2.0;  // 0 = vertical centre, 1 = top/bottom
-  // float yMask = smoothstep(0.0, 1.0, ey); // gentle full-height gradient
-  // yMask = pow(yMask, 0.7);               // bias toward edges
+  vec2 noiseUV  = vUv * 1000.0 + vec2(t * (step(vUv.x, 0.5) - 0.5) / 0.5, 0.0) * 10.0;
+  float scale = mix(1.0, 1000.0, xMask); // 1 → 5 stretch
 
-  // combined mask — corner regions get maximum warp
-  // float mask = xMask * (0.3 + yMask * 0.7);
-  float mask = xMask;
+  noiseUV.y -= 0.5;
+  noiseUV.y *= scale;
+  noiseUV.y += 0.5;
 
-  // ── noise coords — different speeds on x/y for organic drift ─────────────
-  vec2 noiseUV = vUv * 1000.0 + vec2(t * (step(vUv.x,.5) - .5) / .5,0.0) * 10.0;
+  float dx = fbm(noiseUV + vec2(0.0, 0.0)) * 0.1;
+  float dy = fbm(noiseUV + vec2(5.3, 3.1)) * 0.1;
 
-  // two independent noise fields for dx and dy
-  float dx = fbm(noiseUV + vec2(0.0,  0.0)) * .1;
-  float dy = fbm(noiseUV + vec2(5.3,  3.1)) * .1;
-  // float base = 0.0;
-  // base += step(vUv.x,.5);
-  // float theta = base + snoise(noiseUV) * 1.0 * 3.1415926;
-  // float dx = cos(theta) * .3;
-  // float dy = cos(base) * .1;
+  float maskY    = max(1.0 - abs(vUv.y - 0.5) / 0.2, 0.0);
+  vec2 warpedUV  = vUv + vec2(dx, dy) * mask * maskY * uActive;
 
-  // ── total displacement magnitude ──────────────────────────────────────────
-  // idle: very subtle living warp; scroll: grows noticeably
-  // float amt = uAmount * mask;
+  // ── mouse repulsion ───────────────────────────────────────────────────────
+  // correct for aspect ratio so radius is circular in screen space
+  vec2  toMouse     = warpedUV - uMouse;
+  toMouse.x        *= ar;                      // stretch X by AR to make it circular
 
-  float maskY = max((1.0 - abs(vUv.y - .5) / .2),0.0);
+  float dist        = length(toMouse);
 
-  vec2 warpedUV = vUv + vec2(dx, dy) * mask * maskY * uActive;
+  float radius      = 0.1;                    // repulsion radius in UV space (tune this)
+  float strength    = 0.12;                    // max push distance in UV (tune this)
 
-  // pure UV sample — zero colour modification
-  gl_FragColor = texture2D(tDiffuse, warpedUV);
+  // smooth falloff: full push at dist=0, zero push at dist=radius
+  float falloff     = 1.0 - smoothstep(0.0, radius, dist);
+  falloff           = falloff * falloff * falloff;       // quadratic — sharper centre, soft edge
 
+  // push direction: away from mouse
+  vec2 pushDir      = normalize(toMouse / vec2(ar, 1.0)); // un-correct AR for UV space
+  vec2 repulsion    = pushDir * falloff * strength;
 
-  // gl_FragColor = vec4(warpedUV,mask,1.0);
-  // gl_FragColor = vec4(maskY,maskY,maskY,1.0);
-  // gl_FragColor = vec4(mask,mask,mask,1.0);
+  // apply repulsion — works on top of edge warp, so noised regions get pushed too
+  warpedUV         -= repulsion;
 
+  // ── colour decay on warped edges ──────────────────────────────────────────
+  vec4 col       = texture2D(tDiffuse, warpedUV);
+  float colorDecay = max(smoothstep(1.0, 0.1, mask / 6.0), 0.1);
+  if (uActive <= 0.5) colorDecay = 1.0;
+  col           *= colorDecay;
+
+  // col = vec4(repulsion,0.0,0.0);
+
+  // col *= min(dist / radius,1.0);
+
+  gl_FragColor   = col;
 }

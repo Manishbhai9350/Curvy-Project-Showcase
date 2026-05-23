@@ -7,6 +7,7 @@ export const PROJECTS = [
   {
     index:    "01",
     image:    "/images/toWEBP/snapshot-1.webp",
+    image2:    "/images/1.jpg",
     title:    "Forma",
     subtitle: "Brand Identity & Motion",
     desc:     "A full visual identity system for a next-generation architecture firm. Typeface, spatial grid, motion language.",
@@ -16,6 +17,7 @@ export const PROJECTS = [
   {
     index:    "02",
     image:    "/images/toWEBP/snapshot-2.webp",
+    image2:    "/images/12.jpg",
     title:    "Veil",
     subtitle: "Digital Experience",
     desc:     "An immersive web experience for a luxury fragrance house. Shader-driven product reveal, spatial audio.",
@@ -25,6 +27,7 @@ export const PROJECTS = [
   {
     index:    "03",
     image:    "/images/toWEBP/snapshot-3.webp",
+    image2:    "/images/3.jpg",
     title:    "Stratum",
     subtitle: "Visual Direction",
     desc:     "Campaign direction for an independent fashion label. Raw materiality meets digital precision.",
@@ -34,6 +37,7 @@ export const PROJECTS = [
   {
     index:    "04",
     image:    "/images/toWEBP/snapshot-4.webp",
+    image2:    "/images/4.jpg",
     title:    "Pulse",
     subtitle: "Interactive Installation",
     desc:     "A data-driven generative installation for a music festival. Real-time audio reactive visuals.",
@@ -43,6 +47,7 @@ export const PROJECTS = [
   {
     index:    "05",
     image:    "/images/toWEBP/snapshot-5.webp",
+    image2:    "/images/5.jpg",
     title:    "Crest",
     subtitle: "Product & Identity",
     desc:     "Brand system and packaging design for a precision hardware startup. Engineered minimalism.",
@@ -52,6 +57,7 @@ export const PROJECTS = [
   {
     index:    "06",
     image:    "/images/toWEBP/snapshot-6.webp",
+    image2:    "/images/6.jpg",
     title:    "Liminal",
     subtitle: "Web & Motion",
     desc:     "Portfolio and case study platform for a creative studio. Scroll-driven narrative, bespoke transitions.",
@@ -61,6 +67,7 @@ export const PROJECTS = [
   {
     index:    "07",
     image:    "/images/toWEBP/snapshot-7.webp",
+    image2:    "/images/13.jpg",
     title:    "Obsidian",
     subtitle: "Campaign & Photography",
     desc:     "Visual campaign for a dark luxury skincare brand. High contrast editorial photography meets motion typography.",
@@ -70,6 +77,7 @@ export const PROJECTS = [
   {
     index:    "08",
     image:    "/images/toWEBP/snapshot-8.webp",
+    image2:    "/images/8.jpg",
     title:    "Drift",
     subtitle: "Spatial Interface",
     desc:     "An experimental 3D interface for a music streaming concept. Physics-driven navigation through sonic space.",
@@ -79,6 +87,7 @@ export const PROJECTS = [
   {
     index:    "09",
     image:    "/images/toWEBP/snapshot-9.webp",
+    image2:    "/images/9.jpg",
     title:    "Verdant",
     subtitle: "Brand & Packaging",
     desc:     "Complete brand world for an organic wellness label. Earthy materiality, hand-drawn systems, print production.",
@@ -88,6 +97,7 @@ export const PROJECTS = [
   {
     index:    "10",
     image:    "/images/toWEBP/snapshot-10.webp",
+    image2:    "/images/10.jpg",
     title:    "Hollow",
     subtitle: "Interactive Film",
     desc:     "A branching narrative web experience for an independent film studio. Real-time shader transitions between scenes.",
@@ -97,6 +107,7 @@ export const PROJECTS = [
   {
     index:    "11",
     image:    "/images/toWEBP/snapshot-11.webp",
+    image2:    "/images/11.jpg",
     title:    "Axiom",
     subtitle: "Identity & Motion",
     desc:     "Brand identity and motion system for a fintech startup. Precision geometry, kinetic logomark, design tokens.",
