@@ -216,6 +216,7 @@ nav {
   padding: 6px 14px;
   border-radius: 100px;
   font-weight: 400;
+  background: red;
 }
 
 .view-link {
@@ -325,4 +326,8 @@ nav {
   .project-desc { font-size: 1.5rem !important; line-height: 1.1; }
   nav { padding: 24px; }
   .nav-right { gap: 24px; }
+  .project-slide { padding: 100px 24px; }
+  .bottom-bar { left: 24px }
+  .nav-left { max-width: 100px; }
+  .hint-arrow { rotate: -90deg; }
 }

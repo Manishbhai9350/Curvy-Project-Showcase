@@ -436,7 +436,7 @@ window.addEventListener(
     const x = e.touches[0].clientX;
     const dx = x - lastDragX;
     lastDragX = x;
-    const sceneDelta = -(dx / innerWidth) * SceneWidth * 1.4;
+    const sceneDelta = -(dx / innerWidth) * SceneWidth * 2;
     addScrollDelta(sceneDelta);
   },
   { passive: true },
